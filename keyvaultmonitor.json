@@ -1,0 +1,373 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "TeamName": {
+      "type": "string",
+      "defaultValue": "TeamName",
+      "maxLength": 8,
+      "metadata": {
+        "description": "Team Name who use the Key Vault, use less than 8 characters."
+      }
+    },
+    "VaultType": {
+      "type": "string",
+      "allowedValues": [
+        "SHR",
+        "LM"
+      ]
+    },
+    "Support Contact": {
+      "type": "string",
+      "defaultValue": "IMC_Pepper@harbourit.com.au",
+      "metadata": {
+        "description": "Enter the Distribution List who own the Key Vault."
+      }
+    },
+    "Critical Contact": {
+      "type": "string",
+      "defaultValue": "critical_alerts@harbourit.com.au",
+      "metadata": {
+        "description": "Enter the Distribution List who receives Critical Alert."
+      }
+    },
+    "Owner": {
+      "type": "string",
+      "defaultValue": "Infrastructure",
+      "metadata": {
+        "description": "Enter the full Team Name who owner the Key Vault."
+      }
+    },
+    "spnsecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Find out the secret from KeyVault: EnterpriseKVProd for SPN: event grid listener."
+      }
+    },
+    "VaultName": {
+      "type": "string",
+      "defaultValue": "[concat(parameters('TeamName'),'KV',parameters('VaultType'))]",
+      "metadata": {
+        "description": "Self generated value based on naming standard, do not change when not necessary."
+      }
+    }
+
+  },
+
+  "variables": {
+    "location": "australiaeast",
+    "sku": "Standard",
+    "tenant": "2a88bdf1-729e-4108-81ae-cfdbe7cf89a3",
+    "Subscirption": {
+      "SHR": {
+        "subID": "4c0c58b1-1383-417d-91f5-bf6fad54271e"
+      },
+      "LM": {
+        "subID": "4c0c58b1-1383-417d-91f5-bf6fad54271e"
+      }
+    },
+    "Envrionment": {
+      "SHR": {
+        "EnvTag": "Shared",
+        "azgrid": "/subscriptions/4c0c58b1-1383-417d-91f5-bf6fad54271e/providers/Microsoft.Web/locations/australiaeast/managedApis/azureeventgrid",
+        "o365": "/subscriptions/4c0c58b1-1383-417d-91f5-bf6fad54271e/providers/Microsoft.Web/locations/australiaeast/managedApis/office365"
+      },
+      "LM": {
+        "EnvTag": "LoanMarket",
+        "azgrid": "/subscriptions/4c0c58b1-1383-417d-91f5-bf6fad54271e/providers/Microsoft.Web/locations/australiaeast/managedApis/azureeventgrid",
+        "o365": "/subscriptions/4c0c58b1-1383-417d-91f5-bf6fad54271e/providers/Microsoft.Web/locations/australiaeast/managedApis/office365"
+      }
+    },
+    "networkAcls": {
+      "value": {
+        "defaultAction": "allow",
+        "bypass": "AzureServices",
+        "ipRules": [],
+        "virtualNetworkRules": []
+      }
+    },
+    "tags": {
+      "Cost Center": "8720",
+      "Envrionment": "[variables('Envrionment')[parameters('VaultType')].EnvTag]",
+      "Owner": "[parameters('Owner')]",
+      "Platform": "Key Vault",
+      "Support Contact": "[parameters('Support Contact')]"
+    },
+    "accessPolicies": [
+      {
+        "objectId": "16585530-8f82-4398-a6ce-88d3dda1541f",
+        "tenantId": "2a88bdf1-729e-4108-81ae-cfdbe7cf89a3",
+        "permissions": {
+          "keys": [
+            "Get",
+            "List",
+            "Update",
+            "Create",
+            "Import",
+            "Delete",
+            "Recover",
+            "Backup",
+            "Restore"
+          ],
+          "secrets": [
+            "Get",
+            "List",
+            "Set",
+            "Delete",
+            "Recover",
+            "Backup",
+            "Restore"
+          ],
+          "certificates": [
+            "Get",
+            "List",
+            "Update",
+            "Create",
+            "Import",
+            "Delete",
+            "Recover",
+            "Backup",
+            "Restore",
+            "ManageContacts",
+            "ManageIssuers",
+            "GetIssuers",
+            "ListIssuers",
+            "SetIssuers",
+            "DeleteIssuers"
+          ]
+        }
+      }
+    ],
+    "workflowSchema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "laName": "[concat('Alert-', parameters('VaultName'))]",
+    "rgID": "[resourceGroup().id]",
+    "spnclientID": "b7d9c3af-a1be-4207-82bc-7f3a267efb6b"
+  },
+  "resources": [
+    {
+      "apiVersion": "2016-10-01",
+      "name": "[parameters('VaultName')]",
+      "location": "[variables('location')]",
+      "type": "Microsoft.KeyVault/vaults",
+      "properties": {
+        "enabledForDeployment": false,
+        "enabledForTemplateDeployment": false,
+        "enabledForDiskEncryption": false,
+        "enableRbacAuthorization": false,
+        "accessPolicies": "[variables('accessPolicies')]",
+        "tenantId": "[variables('tenant')]",
+        "sku": {
+          "name": "[variables('sku')]",
+          "family": "A"
+        },
+        "enableSoftDelete": true,
+        "softDeleteRetentionInDays": 90,
+        "enablePurgeProtection": true,
+        "networkAcls": "[variables('networkAcls')]"
+      },
+      "tags": "[variables('tags')]",
+      "dependsOn": []
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "azureeventgrid",
+      "location": "australiaeast",
+
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('VaultName'))]"
+      ],
+      "properties": {
+        "displayName": "KeyVaultEventGrid",
+        "customParameterValues": {},
+        "api": {
+          "id": "[variables('Envrionment')[parameters('VaultType')].azgrid]"
+        },
+        "parameterValues": {
+          "token:clientId": "[variables('spnclientID')]",
+          "token:TenantId": "[variables('tenant')]",
+          "token:clientSecret": "[parameters('spnsecret')]",
+          "token:resourceUri": "https://management.core.windows.net/",
+          "token:grantType": "client_credentials"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "office365",
+      "location": "australiaeast",
+      "dependsOn": [
+        "[concat('/', variables('rgID'), '/providers/Microsoft.Web/connections/azureeventgrid')]"
+      ],
+      "properties": {
+        "displayName": "AzureEventNotification@pepper.com.au",
+        "customParameterValues": {},
+        "api": {
+          "id": "[variables('Envrionment')[parameters('VaultType')].o365]"
+        }
+      }
+    },
+    {
+      "apiVersion": "2017-07-01",
+      "dependsOn": [
+        "[concat('/', variables('rgID'), '/providers/Microsoft.Web/connections/azureeventgrid')]",
+        "[concat('/', variables('rgID'), '/providers/Microsoft.Web/connections/office365')]"
+      ],
+      "location": "[variables('location')]",
+      "name": "[variables('laName')]",
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "defaultValue": {},
+              "type": "Object"
+            },
+            "Distribution List": {
+              "defaultValue": "[parameters('Support Contact')]",
+              "type": "String"
+            },
+            "Distribution List Critical": {
+              "defaultValue": "[parameters('Critical Contact')]",
+              "type": "String"
+            },
+            "Key Vault Name": {
+              "defaultValue": "[parameters('VaultName')]",
+              "type": "String"
+            }
+          },
+          "triggers": {
+            "When_a_resource_event_occurs": {
+              "splitOn": "@triggerBody()",
+              "type": "ApiConnectionWebhook",
+              "inputs": {
+                "body": {
+                  "properties": {
+                    "destination": {
+                      "endpointType": "webhook",
+                      "properties": {
+                        "endpointUrl": "@{listCallbackUrl()}"
+                      }
+                    },
+                    "filter": {
+                      "includedEventTypes": [
+                        "Microsoft.KeyVault.SecretNewVersionCreated",
+                        "Microsoft.KeyVault.SecretNearExpiry",
+                        "Microsoft.KeyVault.SecretExpired",
+                        "Microsoft.KeyVault.CertificateExpired",
+                        "Microsoft.KeyVault.CertificateNearExpiry",
+                        "Microsoft.KeyVault.CertificateNewVersionCreated",
+                        "Microsoft.KeyVault.KeyExpired",
+                        "Microsoft.KeyVault.KeyNearExpiry",
+                        "Microsoft.KeyVault.KeyNewVersionCreated"
+                      ]
+                    },
+                    "topic": "[resourceId('Microsoft.KeyVault/vaults/', parameters('VaultName'))]"
+                  }
+                },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['azureeventgrid']['connectionId']"
+                  }
+                },
+                "path": "/subscriptions/{topicSubscriptionId}/providers/@{encodeURIComponent('Microsoft.KeyVault.vaults')}/resource/eventSubscriptions",
+                "queries": {
+                  "x-ms-api-version": "2017-09-15-preview"
+                }
+              }
+            }
+          },
+          "actions": {
+            "Condition": {
+              "actions": {
+                "Send_an_email_(V2)": {
+                  "runAfter": {},
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "body": {
+                      "Body": "<p>Hi Team,<br>\n<br>\nThe monitoring event has been trigged in Azure Key vault. Please review the below details.<br>\n<br>\nEvent ID: @{triggerBody()?['id']}<br>\nEvent Type: @{triggerBody()?['eventType']}<br>\nEvent Time: @{triggerBody()?['eventTime']}<br>\nSubject: @{triggerBody()?['subject']}<br>\nEvent Data: @{triggerBody()?['data']}<br>\n</p>",
+                      "Subject": "Critical: Azure Key Vault - @{parameters('Key Vault Name')} - Email Notification",
+                      "To": "@parameters('Distribution List Critical')"
+                    },
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['office365']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/v2/Mail"
+                  }
+                }
+              },
+              "runAfter": {},
+              "else": {
+                "actions": {
+                  "Send_an_email_(V2)_2": {
+                    "runAfter": {},
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "body": {
+                        "Body": "<p>Hi Team,<br>\n<br>\nThe monitoring event has been trigged in Azure Key vault. Please review the below details.<br>\n<br>\nEvent ID: @{triggerBody()?['id']}<br>\nEvent Type: @{triggerBody()?['eventType']}<br>\nEvent Time: @{triggerBody()?['eventTime']}<br>\nSubject: @{triggerBody()?['subject']}<br>\nEvent Data: @{triggerBody()?['data']}<br>\n</p>",
+                        "Subject": "Azure Key Vault - @{parameters('Key Vault Name')} - Email Notification",
+                        "To": "@parameters('Distribution List')"
+                      },
+                      "host": {
+                        "connection": {
+                          "name": "@parameters('$connections')['office365']['connectionId']"
+                        }
+                      },
+                      "method": "post",
+                      "path": "/v2/Mail"
+                    }
+                  }
+                }
+              },
+              "expression": {
+                "or": [
+                  {
+                    "contains": [
+                      "@triggerBody()?['eventType']",
+                      "NearExpiry"
+                    ]
+                  },
+                  {
+                    "contains": [
+                      "@triggerBody()?['eventType']",
+                      "Expired"
+                    ]
+                  }
+                ]
+              },
+              "type": "If"
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "azureeventgrid": {
+                "connectionId": "[concat(variables('rgID'), '/providers/Microsoft.Web/connections/azureeventgrid')]",
+                "connectionName": "azureeventgrid",
+                "id": "[variables('Envrionment')[parameters('VaultType')].azgrid]"
+              },
+              "office365": {
+                "connectionId": "[concat(variables('rgID'), '/providers/Microsoft.Web/connections/office365')]",
+                "connectionName": "office365",
+                "id": "[variables('Envrionment')[parameters('VaultType')].o365]"
+              }
+            }
+          }
+        }
+      },
+      "tags": "[variables('tags')]",
+      "type": "Microsoft.Logic/workflows"
+    }
+
+  ],
+  "outputs": {}
+
+}
